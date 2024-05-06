@@ -19,11 +19,22 @@ use tokenizers::Tokenizer;
 
 mod multilingual;
 mod pcm_decode;
+mod whisper;
 
 use candle_core::utils::{cuda_is_available, metal_is_available};
 
 
-use candle_transformers::models::whisper::{self as m, audio, Config};
+use whisper::{self as m, audio, Config};
+
+fn format_time(seconds: f32) -> String {
+    let hours = (seconds / 3600.0) as i32;
+    let minutes = ((seconds % 3600.0) / 60.0) as i32;
+    let seconds = (seconds % 60.0) as i32;
+    let ns = (seconds * 10 % 10i32) as i32;
+
+
+    format!("{:02}:{:02}:{:02}.{:01}", hours, minutes, seconds, ns)
+}
 
 pub fn device(cpu: bool) -> Result<Device> {
     if cpu {
@@ -331,7 +342,8 @@ impl Decoder {
                                 .tokenizer
                                 .decode(&tokens_to_decode, true)
                                 .map_err(E::msg)?;
-                            println!("  {:.1}s-{:.1}s: {}", prev_timestamp_s, timestamp_s, text);
+
+                            println!("  [{:>10}-{:>10}] {}", format_time(prev_timestamp_s), format_time(timestamp_s), text);
                             tokens_to_decode.clear()
                         }
                         prev_timestamp_s = timestamp_s;
@@ -571,7 +583,7 @@ fn main() -> Result<()> {
     if sample_rate != m::SAMPLE_RATE as u32 {
         anyhow::bail!("input file must have a {} sampling rate", m::SAMPLE_RATE)
     }
-    println!("pcm data loaded {}", pcm_data.len());
+    println!("Audio PCM data loaded {}", pcm_data.len());
     let mel = audio::pcm_to_mel(&config, &pcm_data, &mel_filters);
     let mel_len = mel.len();
     let mel = Tensor::from_vec(
@@ -579,7 +591,7 @@ fn main() -> Result<()> {
         (1, config.num_mel_bins, mel_len / config.num_mel_bins),
         &device,
     )?;
-    println!("loaded mel: {:?}", mel.dims());
+    println!("Audio MEL loaded mel: {:?}", mel.dims());
 
     let mut model = if args.quantized {
         let vb = candle_transformers::quantized_var_builder::VarBuilder::from_gguf(
